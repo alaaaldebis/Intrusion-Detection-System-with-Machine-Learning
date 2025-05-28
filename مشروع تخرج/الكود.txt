@@ -1,0 +1,590 @@
+import numpy as np
+import pandas as pd
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+from sklearn.ensemble import IsolationForest
+from sklearn.svm import OneClassSVM
+from sklearn.preprocessing import StandardScaler
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from tkinter import Toplevel
+#from sklearn.metrics import  confusion_matrix
+
+
+def load_csv_data():
+    file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
+    if not file_path:
+        return None
+    try:
+        dataset = pd.read_csv(file_path)
+        print("Data Loaded Successfully!")
+        return dataset
+    except Exception as e:
+        messagebox.showerror("Error", f"Error loading CSV file: {e}")
+        return None
+
+
+def validate_dataset(dataset):
+    try:
+        if dataset is None:
+            messagebox.showwarning("Validation", "No dataset loaded.")
+            return False
+
+        if dataset.shape[1] < 2:
+            messagebox.showerror("Validation", "Dataset must have at least two columns.")
+            return False
+
+        if dataset.isnull().values.any():
+            messagebox.showerror("Validation", "Dataset contains missing values. Please clean the data.")
+            return False
+
+        messagebox.showinfo("Validation", "Dataset is valid.")
+        return True
+
+    except Exception as e:
+        messagebox.showerror("Error", f"Error during validation: {e}")
+        return False
+
+
+
+
+
+def run_model(dataset, train_percent, test_percent, val_percent, model_type="One-Class SVM"):
+    try:
+      
+        X = dataset.iloc[:, :2].values     
+        n_train = int(train_percent * len(X))
+        n_test = int(test_percent * len(X))
+
+        X_train = X[:n_train]
+        X_test = X[n_train:n_train + n_test]
+        X_val = X[n_train + n_test:]
+
+       
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+        X_test = scaler.transform(X_test)
+        X_val = scaler.transform(X_val)
+        X_outliers = np.random.uniform(low=-4, high=4, size=(3, 2))
+
+        
+        if model_type == "One-Class SVM":
+            model = OneClassSVM(kernel='rbf', gamma=0.1, nu=0.05)  
+        elif model_type == "Isolation Forest":
+            model = IsolationForest(n_estimators=100, contamination=0.1, random_state=42) 
+        else:
+            raise ValueError("Invalid model type selected.")
+
+        model.fit(X_train)
+
+          
+        y_pred_train = model.predict(X_train)
+        y_pred_test = model.predict(X_test)
+        y_pred_val = model.predict(X_val)
+
+          
+        y_pred_train = [1 if x == 1 else 0 for x in y_pred_train]
+        y_pred_test = [1 if x == 1 else 0 for x in y_pred_test]
+        y_pred_val = [1 if x == 1 else 0 for x in y_pred_val]
+        y_pred_outliers = [0 if x == -1 else 1 for x in model.predict(X_outliers)]
+
+        
+        y_true_train = [1] * len(y_pred_train)  
+        y_true_test = [1] * len(y_pred_test)  
+        y_true_val = [1] * len(y_pred_val)  
+        y_true_outliers = [0] * len(y_pred_outliers)
+
+        
+        y_true = y_true_train + y_true_test + y_true_val + y_true_outliers
+        y_pred = y_pred_train + y_pred_test + y_pred_val + y_pred_outliers
+
+       
+        accuracy = accuracy_score(y_true, y_pred)
+        precision = precision_score(y_true, y_pred, average='binary')     
+        recall = recall_score(y_true, y_pred, average='binary')
+        f1 = f1_score(y_true, y_pred, average='binary')
+      #  conf_matrix = confusion_matrix(y_true, y_pred)
+
+        
+        result_message = (
+            f"Model: {model_type}\n\n"
+            f"Accuracy: {accuracy:.2f}\n"
+            f"Precision: {precision:.2f}\n"
+            f"Recall: {recall:.2f}\n"
+            f"F1-Score: {f1:.2f}\n\n"
+      #      f"Confusion Matrix:\n{conf_matrix}"
+        )
+        messagebox.showinfo("Model Results", result_message)
+
+    except Exception as e:
+        messagebox.showerror("Error", f"Error in model: {e}")
+#############
+
+
+
+class MultiPageApp(tk.Tk):
+    
+    def __init__(self):
+        super().__init__()
+        self.title("Anomaly Detection GUI ")
+        self.geometry("800x600")
+        self.configure(bg="#2C3E50")
+
+        self.train_percent = 0.7
+        self.test_percent = 0.1
+        self.val_percent = 0.2
+        self.report = None  
+        
+        #for page tabe
+        notebook = ttk.Notebook(self)
+        notebook.pack(fill='both', expand=True)
+
+
+        self.page1 = Page1(notebook, self)
+        self.page2 = Page2(notebook, self)
+
+        notebook.add(self.page1, text="Load Dataset")
+        notebook.add(self.page2, text="Run Model")
+
+        self.pages = {"Page1": self.page1, "Page2": self.page2}
+        self.notebook = notebook
+
+    def show_page(self, page_name):
+        page = self.pages.get(page_name)
+        if page:
+            self.notebook.select(self.pages[page_name])
+
+class Page1(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent, bg="#34495E")
+        self.controller = controller
+        self.dataset = None
+
+
+        label = tk.Label(self, text="Load Dataset", font=("Arial", 18), fg="white", bg="#34495E")
+        label.pack(pady=20)
+
+        load_button = tk.Button(self, text="Load Dataset", command=self.load_dataset, 
+                                bg="#16A085", fg="white", font=("Arial", 14), activebackground="#148F77", bd=0, relief="flat")
+        load_button.pack(pady=10, fill=tk.X)
+
+        validate_button = tk.Button(self, text="Validate Dataset", command=self.validate_dataset, 
+                                    bg="#16A085", fg="white", font=("Arial", 14), activebackground="#148F77", bd=0, relief="flat")
+        validate_button.pack(pady=10, fill=tk.X)
+###############################
+
+        self.train_percent = tk.StringVar(value="70")
+        self.test_percent = tk.StringVar(value="10")
+        self.val_percent = tk.StringVar(value="20")
+
+        tk.Label(self, text="Training %:", font=("Arial", 12), fg="white", bg="#34495E").pack(pady=5)
+        tk.Entry(self, textvariable=self.train_percent, font=("Arial", 12)).pack(pady=5)
+
+        tk.Label(self, text="Testing %:", font=("Arial", 12), fg="white", bg="#34495E").pack(pady=5)
+        tk.Entry(self, textvariable=self.test_percent, font=("Arial", 12)).pack(pady=5)
+
+        tk.Label(self, text="Validation %:", font=("Arial", 12), fg="white", bg="#34495E").pack(pady=5)
+        tk.Entry(self, textvariable=self.val_percent, font=("Arial", 12)).pack(pady=5)
+###############################
+        next_button = tk.Button(self, text="Go to Next", command=self.go_to_next_page, 
+                                bg="#16A085", fg="white", font=("Arial", 14), activebackground="#148F77", bd=0, relief="flat")
+        next_button.pack(pady=20, fill=tk.X)
+
+
+
+    def load_dataset(self):
+        self.dataset = load_csv_data()
+
+    def validate_dataset(self):
+        validate_dataset(self.dataset)
+
+    def go_to_next_page(self):
+        try:
+            train = float(self.train_percent.get())
+            test = float(self.test_percent.get())
+            val = float(self.val_percent.get())
+
+            if train + test + val != 100:
+                messagebox.showerror("Error", "Percentages must add up to 100!")
+                return
+
+            self.controller.train_percent = train / 100
+            self.controller.test_percent = test / 100
+            self.controller.val_percent = val / 100
+            self.controller.show_page("Page2")
+        except ValueError:
+            messagebox.showerror("Error", "Please enter valid percentages.")
+
+
+class Page2(tk.Frame):
+    def __init__(self, parent, controller):
+        super().__init__(parent, bg="#34495E")
+        self.controller = controller
+        self.report = None
+
+        label = tk.Label(self, text="Select and Run Model", font=("Arial", 18), fg="white", bg="#34495E")
+        label.pack(pady=20)
+
+        self.model_var = tk.StringVar(value="One-Class SVM")
+        model_options = ["Isolation Forest", "One-Class SVM"]
+
+        model_dropdown = tk.OptionMenu(self, self.model_var, *model_options)
+        model_dropdown.config(bg="#34495E", fg="white", font=("Arial", 12), relief="flat")
+        model_dropdown.pack(pady=10)
+
+        training_button = tk.Button(
+            self, text="Training Model ", command=self.train_model,
+            bg="#2ECC71", fg="white", font=("Arial", 14), activebackground="#27AE60", bd=0, relief="flat"
+        )
+        training_button.pack(pady=10, fill=tk.X)
+
+        
+      
+      
+         
+        run_button = tk.Button(
+            self, text=" Training Results", command=self.run_model_and_show_results,
+            bg="#1F618D", fg="white", font=("Arial", 14), activebackground="#1A5276", bd=0, relief="flat"
+        )
+        run_button.pack(pady=20, fill=tk.X)
+###########################
+
+         #Buttons
+        run_button = tk.Button(
+            self, text="Load Test Dataset", command=self.load_test_dataset,
+            bg="#1F618D", fg="white", font=("Arial", 14), activebackground="#1A5276", bd=0, relief="flat"
+        )
+        run_button.pack(pady=20, fill=tk.X)
+
+         #Buttons
+        run_button = tk.Button(
+            self, text=" Test Results", command=self.run_test_model,
+            bg="#1F618D", fg="white", font=("Arial", 14), activebackground="#1A5276", bd=0, relief="flat"
+        )
+        run_button.pack(pady=20, fill=tk.X)
+
+         
+        run_button = tk.Button(
+            self, text="Evaluate Model", command=self.evaluate_model,
+            bg="#1F618D", fg="white", font=("Arial", 14), activebackground="#1A5276", bd=0, relief="flat"
+        )
+        run_button.pack(pady=20, fill=tk.X)
+
+
+
+
+
+
+        export_button = tk.Button(
+            self, text="Export Results", command=self.export_results,
+            bg="#D35400", fg="white", font=("Arial", 14)
+        )
+        export_button.pack(pady=10, fill=tk.X)
+
+        back_button = tk.Button(
+            self, text="Back to Page 1", command=lambda: controller.show_page("Page1"),
+            bg="#1F618D", fg="white", font=("Arial", 14), activebackground="#1A5276", bd=0, relief="flat"
+        )
+        back_button.pack(pady=20, fill=tk.X)
+        
+    def run_selected_model(self):
+         try:
+           selected_model = self.model_var.get()
+           dataset = getattr(self.controller.page1, 'dataset', None)
+
+           if dataset is None:
+               messagebox.showerror("Error", "Please load a dataset first.")
+               return
+
+           run_model(dataset, self.controller.train_percent, self.controller.test_percent, self.controller.val_percent, selected_model)
+
+         except Exception as e:
+           messagebox.showerror("Error", f"Error in model: {e}")
+
+
+    def run_model_and_show_results(self):
+       dataset = getattr(self.controller.page1, 'dataset', None)
+       if dataset is not None:
+           self.run_selected_model()
+       else:
+           messagebox.showerror("Error", "Please load a dataset first.")
+   
+
+
+
+
+    def train_model(self):
+        """Train the model with the selected dataset."""
+        dataset = getattr(self.controller.page1, 'dataset', None)
+        if dataset is None:
+            messagebox.showerror("Error", "Please load a dataset first.")
+            return
+
+        if 'label' in dataset.columns:
+            normal_data = dataset[dataset['label'] == 1].iloc[:, :-1].values  
+        else:
+            normal_data = dataset.values
+
+        # Select the model
+        selected_model = self.model_var.get()
+
+        if selected_model == "Isolation Forest":
+            model = IsolationForest()
+        elif selected_model == "One-Class SVM":
+            model = OneClassSVM()
+        else:
+            messagebox.showerror("Error", "Invalid model selected.")
+            return
+
+        try:
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(normal_data) 
+            # Train the model
+            model.fit(X_scaled)
+            self.controller.trained_model = model 
+            self.controller.scaler = scaler 
+            messagebox.showinfo("Success", f"{selected_model} training completed successfully!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error during training: {e}")
+
+
+
+    def load_test_dataset(self):
+        """Load the test dataset from a file."""
+        try:
+            file_path = filedialog.askopenfilename(
+                title="Select Test Dataset",
+                filetypes=(("CSV Files", "*.csv"), ("Excel Files", "*.xlsx"), ("All Files", "*.*"))
+            )
+            if not file_path:
+                return
+
+            if file_path.endswith(".csv"):
+                test_dataset = pd.read_csv(file_path)
+            elif file_path.endswith(".xlsx"):
+                test_dataset = pd.read_excel(file_path)
+            else:
+                messagebox.showerror("Error", "Unsupported file format.")
+                return
+
+            self.controller.test_dataset = test_dataset
+            messagebox.showinfo("Success", "Test dataset loaded successfully!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error loading test dataset: {e}")
+
+    def test_model(self, test_dataset):
+        """Test the model with natural and anomalous data."""
+        if test_dataset is None:
+            messagebox.showerror("Error", "Please load a test dataset first.")
+            return None  
+
+        if 'label' not in test_dataset.columns:
+            messagebox.showerror("Error", "Test dataset must have a 'label' column (1 for normal, 0 for anomalies).")
+            return None 
+
+        try:
+            
+            normal_data = test_dataset[test_dataset['label'] == 1].iloc[:, :-1].values
+            anomaly_data = test_dataset[test_dataset['label'] == 0].iloc[:, :-1].values
+
+           
+            X_test = np.vstack([normal_data, anomaly_data])
+            y_true = [1] * len(normal_data) + [0] * len(anomaly_data)
+
+            
+            scaler = getattr(self.controller, 'scaler', None)
+            if scaler is None:
+                messagebox.showerror("Error", "Scaler not found. Train the model first.")
+                return None  
+
+            X_test_scaled = scaler.transform(X_test)
+            self.controller.test_data = (X_test_scaled, y_true)
+            messagebox.showinfo("Success", "Test data prepared successfully!")
+
+            
+            return normal_data
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error during testing: {e}")
+            return None  
+
+    def run_test_model(self, model_type="One-Class SVM"):
+        """Run the test_model function with the loaded dataset."""
+        try:
+           
+            test_dataset = getattr(self.controller, 'test_dataset', None)
+            if test_dataset is None:
+                messagebox.showerror("Error", "Test dataset is empty or not loaded. Please load a valid dataset.")
+                return
+
+           
+            X_train = self.test_model(test_dataset)
+            if X_train is None:
+                return  
+
+         
+            scaler = StandardScaler()
+
+            X_train = pd.DataFrame(X_train).fillna(X_train.mean()).values
+            if len(X_train.shape) == 1:
+                X_train = X_train.reshape(-1, 1)
+
+            X_train_scaled = scaler.fit_transform(X_train)
+
+
+            test_dataset = pd.DataFrame(test_dataset).fillna(test_dataset.mean()).values
+            if len(test_dataset.shape) == 1:
+                test_dataset = test_dataset.reshape(-1, 1)
+
+            X_test_scaled = scaler.transform(test_dataset)
+
+            if model_type == "One-Class SVM":
+                model = OneClassSVM(kernel='rbf', gamma=0.1, nu=0.05)
+                model.fit(X_train_scaled)
+
+            elif model_type == "Isolation Forest":
+                model = IsolationForest(n_estimators=100, contamination=0.1, random_state=42)
+                model.fit(X_train_scaled)
+
+            else:
+                messagebox.showerror("Error", f"Invalid model type: {model_type}")
+                return
+
+            predictions = model.predict(X_test_scaled)
+
+            messagebox.showinfo("Success", f"Model trained and predictions made.\nPredictions: {predictions}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error running test_model: {e}")
+
+
+
+
+    def evaluate_model(self):
+      """Evaluate the model by training, scaling, and comparing training and testing results."""
+      try:
+        test_dataset = getattr(self.controller, 'test_dataset', None)
+        if test_dataset is None:
+            messagebox.showerror("Error", "No test dataset found. Please load a test dataset first.")
+            return
+
+        if 'label' not in test_dataset.columns:
+            messagebox.showerror("Error", "Test dataset must contain a 'label' column.")
+            return
+
+        X_test = test_dataset.iloc[:, :-1].values  
+        y_true = test_dataset['label'].values    
+
+        trained_model = getattr(self.controller, 'trained_model', None)
+        scaler = getattr(self.controller, 'scaler', None)
+
+        if trained_model is None or scaler is None:
+            messagebox.showerror("Error", "Model or scaler not found. Please train the model first.")
+            return
+
+        X_test_scaled = scaler.transform(X_test)
+
+        y_pred = trained_model.predict(X_test_scaled)
+        y_pred_labels = [0 if x == -1 else 1 for x in y_pred]  
+
+        # حساب الأداء العام
+        accuracy = accuracy_score(y_true, y_pred_labels)
+        precision = precision_score(y_true, y_pred_labels, average='binary')     
+        recall = recall_score(y_true, y_pred_labels, average='binary')
+        f1 = f1_score(y_true, y_pred_labels, average='binary')
+      #  conf_matrix = confusion_matrix(y_true, y_pred_labels)
+
+        # عرض النتائج
+        result_message = (
+            f"Accuracy: {accuracy:.2f}\n"
+            f"Precision: {precision:.2f}\n"
+            f"Recall: {recall:.2f}\n"
+            f"F1-Score: {f1:.2f}\n\n"
+           # f"Confusion Matrix:\n{conf_matrix}"
+        )
+        messagebox.showinfo("Evaluation Results", result_message)
+
+        if hasattr(self, 'plot_anomaly_detection_results'):
+            self.plot_anomaly_detection_results(X_test_scaled, y_true, y_pred_labels, trained_model)
+
+      except Exception as e:
+        messagebox.showerror("Error", f"Error during evaluation: {e}")
+
+
+
+
+    def plot_anomaly_detection_results(self, X_test_scaled, y_true, y_pred_labels, model):
+      """Plot the anomaly detection results in a popup window."""
+      try:
+        popup = Toplevel()
+        popup.title("Anomaly Detection Results")
+        popup.geometry("800x600")
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        # Plot Feature 1
+     #   ax.plot(X_test_scaled[:, :], label='Feature 1', color='blue', alpha=0.6)
+
+        # Plot Feature 2
+      #  ax.plot(X_test_scaled[:, 1], label='Feature 2', color='green', alpha=0.6)
+
+
+        anomaly_indices = [i for i, label in enumerate(y_true) if label == 0]
+        ax.scatter(
+            anomaly_indices,  # X-axis: Index of the data point
+            X_test_scaled[anomaly_indices, 0],  # Y-axis: Feature 1 values
+            c='red', s=50, label='Anomaly', alpha=0.8
+        )
+        ax.scatter(
+            anomaly_indices,  # X-axis: Index of the data point
+            X_test_scaled[anomaly_indices, 1],  # Y-axis: Feature 2 values
+            c='orange', s=50, label='Normal', alpha=0.8
+        )
+
+
+        ax.set_title("Anomaly Detection Results (Line Plot)")
+        ax.set_xlabel("Data Point Index")
+        ax.set_ylabel("Feature Value")
+        ax.legend()
+        ax.grid(True)
+
+        canvas = FigureCanvasTkAgg(fig, master=popup)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        close_button = tk.Button(popup, text="Close", command=popup.destroy)
+        close_button.pack(pady=10)
+
+      except Exception as e:
+        messagebox.showerror("Error", f"Error during plotting: {e}")
+
+
+
+
+ 
+    def export_results(self):
+        if self.report is None:
+            messagebox.showerror("Error", "No results to export. Please run the model first.")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt")],
+            title="Save Results As"
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "w") as file:
+                file.write(self.report)
+            messagebox.showinfo("Success", "Results exported successfully!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error exporting results: {e}")
+
+
+    
+if __name__ == "__main__":
+    app = MultiPageApp()  
+    app.mainloop()
